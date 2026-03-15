@@ -14,11 +14,26 @@ Two clocks: fast (local, ~1 Hz, free) and slow (cloud API, event-driven, costs m
 
 Five triggers wake the mind: visual change, audio event, chat message, idle timer, heartbeat.
 
-## Key Directories
+## Repository Structure
 
-- `seed/prompts/ru/` — original mind prompts in Russian
-- `seed/prompts/en/` — English translations
-- `assets/` — images, logos
+```
+agi-probe/
+├── CLAUDE.md
+├── README.md
+├── assets/                     — images, logos
+├── docs/project/               — self-contained project documentation (English)
+│   ├── manifesto.md            — philosophy, method, boundary
+│   ├── architecture.md         — closed loop design, two clocks, data flow
+│   ├── requirements-v0.md      — what the AI asked for (and what it didn't)
+│   ├── bom-v0.md               — bill of materials with costs
+│   └── brain-architecture.md   — layered mind design, functional modules, open challenges
+└── seed/prompts/               — initial mind configuration
+    ├── ru/                     — original prompts (Russian)
+    │   ├── system-prompt.md
+    │   └── mind/
+    │       ├── soul.md, ethics.md, worldview.md, strategy.md, state.md
+    └── en/                     — English translations (same structure)
+```
 
 ## Seed Prompt Structure
 

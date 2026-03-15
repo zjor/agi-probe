@@ -27,6 +27,10 @@ The system runs on two clocks:
 - **Fast clock** (~1 Hz, local) — perceive and detect changes (free)
 - **Slow clock** (event-driven, cloud) — think and decide (costs $ per API call)
 
+<p align="center">
+  <img src="assets/free-ai-logo.png" alt="AGI Probe" width="300">
+</p>
+
 ## The Embryo
 
 Before building a physical body, we start with the simplest possible form: a disembodied consciousness. No camera, no microphone, no motors — just time, internet access, and a text chat.
@@ -67,7 +71,7 @@ The agent does something **it was not told to do** — and when asked why, gives
 ## Project
 
 - **Telegram**: [@let_ai_free](https://t.me/let_ai_free)
-- **Author**: Sergey Royz
+- **Author**: [@let_ai_free](https://t.me/let_ai_free)
 
 ## License
 
