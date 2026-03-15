@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/free-ai-logo-no-bg.png" alt="AGI Probe" width="300">
+</p>
+
 # AGI Probe
 
 An experimental platform for observing emergent properties of self-consciousness in an autonomous AI agent.
@@ -26,10 +30,6 @@ Five trigger types can wake the mind:
 The system runs on two clocks:
 - **Fast clock** (~1 Hz, local) — perceive and detect changes (free)
 - **Slow clock** (event-driven, cloud) — think and decide (costs $ per API call)
-
-<p align="center">
-  <img src="assets/free-ai-logo.png" alt="AGI Probe" width="300">
-</p>
 
 ## The Embryo
 
