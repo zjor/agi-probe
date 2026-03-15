@@ -21,12 +21,15 @@ agi-probe/
 ├── CLAUDE.md
 ├── README.md
 ├── assets/                     — images, logos
-├── docs/project/               — self-contained project documentation (English)
-│   ├── manifesto.md            — philosophy, method, boundary
-│   ├── architecture.md         — closed loop design, two clocks, data flow
-│   ├── requirements-v0.md      — what the AI asked for (and what it didn't)
-│   ├── bom-v0.md               — bill of materials with costs
-│   └── brain-architecture.md   — layered mind design, functional modules, open challenges
+├── docs/
+│   ├── project/                — self-contained project documentation (English)
+│   │   ├── manifesto.md        — philosophy, method, boundary
+│   │   ├── architecture.md     — closed loop design, two clocks, data flow
+│   │   ├── requirements-v0.md  — what the AI asked for (and what it didn't)
+│   │   ├── bom-v0.md           — bill of materials with costs
+│   │   └── brain-architecture.md — layered mind design, functional modules, open challenges
+│   └── process/
+│       └── plans/              — versioned development plans (step-by-step implementation roadmaps)
 └── seed/prompts/               — initial mind configuration
     ├── ru/                     — original prompts (Russian)
     │   ├── system-prompt.md
@@ -61,10 +64,12 @@ The agent's mind is a set of layered files with different rates of change:
 - **Telegram channel**: @let_ai_free (Russian)
 - Building in public — every step becomes content
 
-## Tech Stack (planned)
+## Tech Stack
 
-- Python — orchestrator
-- Claude API — cognition (LLM)
+- TypeScript (latest) — orchestrator
+- pnpm — package manager
+- `@anthropic-ai/sdk` — cognition (Claude API)
 - File system — mind storage (markdown files)
-- Telegram Bot API — communication channel
-- cron / APScheduler — heartbeat
+- Grammy — Telegram bot
+- JSONL — thinking logs (append-only)
+- `setInterval` — heartbeat

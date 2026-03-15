@@ -71,7 +71,6 @@ The agent does something **it was not told to do** — and when asked why, gives
 ## Project
 
 - **Telegram**: [@let_ai_free](https://t.me/let_ai_free)
-- **Author**: [@let_ai_free](https://t.me/let_ai_free)
 
 ## License
 
