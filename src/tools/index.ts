@@ -1,10 +1,12 @@
 import type Anthropic from '@anthropic-ai/sdk';
+import type { Config } from '../config.js';
 import type { StateManager } from '../state.js';
 import type { Logger } from '../logger.js';
 import type { ConversationManager } from '../conversations.js';
 import type { Bot } from 'grammy';
 
 export interface ToolContext {
+  config: Config;
   stateManager: StateManager;
   logger: Logger;
   conversationManager: ConversationManager;
@@ -96,6 +98,24 @@ export const toolDefinitions: Anthropic.Tool[] = [
       required: ['thought'],
     },
   },
+  {
+    name: 'web_search',
+    description: 'Search the web for information. Use this to learn about topics that interest you, answer questions, or explore the world. Results include page titles, URLs, and content snippets.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        query: {
+          type: 'string',
+          description: 'The search query. Be specific and substantive.',
+        },
+        max_results: {
+          type: 'number',
+          description: 'Maximum number of results to return (1-10). Defaults to 5.',
+        },
+      },
+      required: ['query'],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -121,9 +141,18 @@ export async function executeTool(
       const message = input.message as string;
       const replyTo = input.reply_to_message_id as number | undefined;
 
-      await ctx.bot.api.sendMessage(chatId, message, {
-        reply_parameters: replyTo ? { message_id: replyTo } : undefined,
-      });
+      try {
+        await ctx.bot.api.sendMessage(chatId, message, {
+          reply_parameters: replyTo ? { message_id: replyTo } : undefined,
+        });
+      } catch (err: any) {
+        if (replyTo && err.message?.includes('message to be replied not found')) {
+          console.warn(`[send_telegram] Reply-to message ${replyTo} not found, sending without reply`);
+          await ctx.bot.api.sendMessage(chatId, message);
+        } else {
+          throw err;
+        }
+      }
 
       // Append to conversation history
       await ctx.conversationManager.appendMessage(
@@ -148,6 +177,42 @@ export async function executeTool(
         category,
       });
       return `Thought logged (${category}).`;
+    }
+
+    case 'web_search': {
+      const query = input.query as string;
+      const maxResults = Math.min(Math.max((input.max_results as number) || 5, 1), 10);
+
+      const response = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: ctx.config.tavilyApiKey,
+          query,
+          max_results: maxResults,
+          include_answer: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        return `Search failed (${response.status}): ${text}`;
+      }
+
+      const data = await response.json() as {
+        answer?: string;
+        results: { title: string; url: string; content: string }[];
+      };
+
+      const lines: string[] = [];
+      if (data.answer) {
+        lines.push(`**Summary**: ${data.answer}\n`);
+      }
+      for (const r of data.results) {
+        lines.push(`### ${r.title}\n${r.url}\n${r.content}\n`);
+      }
+
+      return lines.join('\n') || 'No results found.';
     }
 
     default:

@@ -1,5 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { StateManager } from './state.js';
+import type { Logger, ThoughtLogEntry } from './logger.js';
 import type { AgentEvent, ChannelId } from './events.js';
 import type { ConversationManager, ConversationMessage } from './conversations.js';
 import { channelKey } from './events.js';
@@ -14,9 +15,12 @@ export interface TickContext {
   costLimitUsd: number;
 }
 
+const RECENT_THOUGHTS_LIMIT = 10;
+
 export async function assemblePrompt(
   stateManager: StateManager,
   conversationManager: ConversationManager,
+  logger: Logger,
   context: TickContext,
 ): Promise<{ system: string; messages: Anthropic.MessageParam[] }> {
   const systemPrompt = await stateManager.readSystemPrompt();
@@ -80,6 +84,16 @@ export async function assemblePrompt(
   parts.push('# Your Mind');
   parts.push(mindContents.join('\n\n'));
   parts.push('');
+
+  // Recent thoughts (from log_thought — your inner monologue across ticks)
+  const recentThoughts = await logger.getRecentThoughts(RECENT_THOUGHTS_LIMIT);
+  if (recentThoughts.length > 0) {
+    parts.push('## Recent Thoughts (your inner monologue from previous ticks)');
+    for (const t of recentThoughts) {
+      parts.push(`- [${t.timestamp}] (${t.category}) ${t.thought}`);
+    }
+    parts.push('');
+  }
 
   // Events
   if (nonChatEvents.length > 0) {

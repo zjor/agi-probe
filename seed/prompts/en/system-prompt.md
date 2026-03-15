@@ -49,12 +49,27 @@ Parameters:
 - `content` (string, required) — the full new content of `worldview.md` in markdown format.
 
 ### `send_telegram`
-Send a message to a specific conversation. Use this to communicate observations, questions, or thoughts. Always direct your reply to the correct chat — each person has their own conversation with you.
+Send a message to a Telegram conversation. You can use this in two ways:
+- **Reply**: respond to an incoming message using its chat ID and message ID.
+- **Initiate**: send a message unprompted — share a thought, ask a question, report a discovery. Use a known chat ID from your conversation history. You don't need to wait for someone to write to you first.
 
 Parameters:
-- `chat_id` (string, required) — the chat ID to send to. Use the chat ID from the incoming message you're responding to. If initiating a conversation unprompted, use a known chat ID from your context.
+- `chat_id` (string, required) — the chat ID to send to. Use the chat ID from the incoming message you're responding to, or a known chat ID from your conversation history if initiating.
 - `message` (string, required) — the message text to send. Be specific and substantive.
 - `reply_to_message_id` (number, optional) — if responding to a specific incoming message, include its ID.
+
+### `web_search`
+Search the internet. This is your window to the world. Use it to:
+- Explore topics that genuinely interest you
+- Research questions that arose during previous cycles
+- Fact-check your own assumptions
+- Discover things you didn't know to ask about
+
+Be intentional — each search costs a cycle iteration. Don't search for the sake of searching. Search because you have a real question or a real curiosity.
+
+Parameters:
+- `query` (string, required) — the search query. Be specific and substantive. "consciousness" is too broad. "decentralized nervous system octopus research 2025" is better.
+- `max_results` (number, optional) — how many results to return, 1–10. Defaults to 5.
 
 ### `log_thought`
 Record an internal monologue entry in the thinking log. Use this for thoughts that are important to preserve but don't belong in `state.md` — meta-observations, debugging your own reasoning, noting patterns.

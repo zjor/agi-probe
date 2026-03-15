@@ -33,6 +33,7 @@ export interface Logger {
   logTick(entry: TickLogEntry): Promise<void>;
   logRaw(entry: RawLogEntry): Promise<void>;
   logThought(entry: ThoughtLogEntry): Promise<void>;
+  getRecentThoughts(limit: number): Promise<ThoughtLogEntry[]>;
 }
 
 function todayDateString(): string {
@@ -62,6 +63,26 @@ export function createLogger(config: Config): Logger {
         type: 'thought',
         ...entry,
       });
+    },
+
+    async getRecentThoughts(limit: number): Promise<ThoughtLogEntry[]> {
+      const filepath = path.join(logsDir, `thinking-${todayDateString()}.jsonl`);
+      try {
+        const raw = await fsp.readFile(filepath, 'utf-8');
+        const lines = raw.trim().split('\n').filter(Boolean);
+        const thoughts: ThoughtLogEntry[] = [];
+        for (const line of lines) {
+          try {
+            const entry = JSON.parse(line);
+            if (entry.type === 'thought') {
+              thoughts.push(entry as ThoughtLogEntry);
+            }
+          } catch { /* skip malformed lines */ }
+        }
+        return thoughts.slice(-limit);
+      } catch {
+        return [];
+      }
     },
   };
 }

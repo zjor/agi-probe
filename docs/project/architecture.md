@@ -159,6 +159,143 @@ This separation makes the system affordable — expensive LLM calls happen only 
 | Memory | SQLite on the Pi |
 | Glue | Python orchestrator running the main loop |
 
+## V0 Code Architecture
+
+The v0 software implementation is a TypeScript-only embryo — no hardware, no sensors. The diagram below shows how the modules interact at runtime.
+
+```mermaid
+graph TB
+    subgraph Entry["index.ts — Entry Point"]
+        BOOT[Bootstrap runtime from seed]
+    end
+
+    subgraph Triggers["Triggers"]
+        HB["heartbeat.ts<br/>setInterval → heartbeat event"]
+        TG["telegram.ts<br/>Grammy bot → chat_message event"]
+    end
+
+    subgraph Core["core.ts — Cognitive Core"]
+        MUTEX{tickInProgress?}
+        DRAIN[Drain event queue]
+        ASSEMBLE[Assemble prompt]
+        API["Claude API call"]
+        TOOL_LOOP{Tool calls<br/>in response?}
+        EXEC[Execute tools]
+        COST_GATE{Cost limit<br/>exceeded?}
+        DONE[Tick complete]
+    end
+
+    EQ["events.ts<br/>Event Queue<br/>(in-memory)"]
+    PA["prompt.ts<br/>Prompt Assembler"]
+    SM["state.ts<br/>State Manager"]
+    CONV["conversations.ts<br/>Conversation Memory"]
+    LOG["logger.ts<br/>Logger (JSONL)"]
+
+    subgraph Tools["tools/index.ts — Tool Handlers"]
+        T1[update_state]
+        T2[update_strategy]
+        T3[update_worldview]
+        T4[send_telegram]
+        T5[log_thought]
+    end
+
+    subgraph Runtime["$RUNTIME_DIR (filesystem)"]
+        MIND["mind/<br/>soul.md · ethics.md<br/>worldview.md · strategy.md · state.md"]
+        HIST["mind/history/<br/>snapshots"]
+        CONVF["conversations/<br/>per-channel JSON"]
+        LOGS["logs/<br/>thinking-*.jsonl<br/>raw-*.jsonl"]
+        SYSP["system-prompt.md"]
+    end
+
+    subgraph External["External"]
+        CLAUDE["Claude API"]
+        TELEGRAM["Telegram API"]
+    end
+
+    %% Boot flow
+    BOOT -->|creates modules| HB
+    BOOT -->|creates modules| TG
+    BOOT -->|creates modules| Core
+
+    %% Trigger flow
+    HB -->|push event| EQ
+    HB -->|runTick| MUTEX
+    TG -->|push event| EQ
+    TG -->|runTick| MUTEX
+    TG -->|appendMessage| CONV
+
+    %% Core tick flow
+    MUTEX -->|busy: skip| DONE
+    MUTEX -->|free| DRAIN
+    DRAIN -->|drain| EQ
+    DRAIN --> COST_GATE
+    COST_GATE -->|exceeded| DONE
+    COST_GATE -->|ok| ASSEMBLE
+    ASSEMBLE -->|read mind files| SM
+    ASSEMBLE -->|read conversations| CONV
+    ASSEMBLE -->|build messages| PA
+    PA --> API
+    API <-->|request/response| CLAUDE
+    API --> TOOL_LOOP
+    TOOL_LOOP -->|no| DONE
+    TOOL_LOOP -->|yes| EXEC
+    EXEC --> API
+
+    %% Tool interactions
+    T1 & T2 & T3 -->|writeMindFile| SM
+    T4 -->|sendMessage| TELEGRAM
+    T4 -->|appendMessage| CONV
+    T5 -->|logThought| LOG
+
+    %% State Manager ↔ filesystem
+    SM -->|read/write| MIND
+    SM -->|snapshot| HIST
+    CONV -->|read/write| CONVF
+    LOG -->|append| LOGS
+    SM -->|read| SYSP
+
+    %% Logging from core
+    API -->|logRaw| LOG
+    DONE -->|logTick| LOG
+
+    %% Styling
+    classDef trigger fill:#f9a825,stroke:#f57f17,color:#000
+    classDef core fill:#42a5f5,stroke:#1565c0,color:#000
+    classDef storage fill:#66bb6a,stroke:#2e7d32,color:#000
+    classDef external fill:#ef5350,stroke:#c62828,color:#fff
+    classDef tool fill:#ab47bc,stroke:#6a1b9a,color:#fff
+
+    class HB,TG trigger
+    class MUTEX,DRAIN,ASSEMBLE,API,TOOL_LOOP,EXEC,COST_GATE,DONE core
+    class MIND,HIST,CONVF,LOGS,SYSP storage
+    class CLAUDE,TELEGRAM external
+    class T1,T2,T3,T4,T5 tool
+```
+
+### Module Dependency Summary
+
+| Module | Depends on | Depended on by |
+|---|---|---|
+| `config.ts` | — | All modules |
+| `events.ts` | — | heartbeat, telegram, core, prompt |
+| `state.ts` | config | core, prompt, tools |
+| `logger.ts` | config | core, tools |
+| `conversations.ts` | config, events | telegram, core, prompt, tools |
+| `prompt.ts` | state, events, conversations | core |
+| `tools/index.ts` | state, logger, conversations, grammy | core |
+| `core.ts` | config, state, logger, events, conversations, prompt, tools | heartbeat, telegram, index |
+| `heartbeat.ts` | config, events, core | index |
+| `telegram.ts` | config, events, conversations, core | index |
+| `index.ts` | all modules | — |
+
+### Key Patterns
+
+- **Tick mutex**: Only one tick runs at a time. If a trigger fires while a tick is active, events stay queued for the next tick.
+- **Agentic loop**: Claude can call tools, get results, and call more tools — up to `MAX_TOOL_ITERATIONS` per tick.
+- **Cost gate**: Checked before every API call. Auto-shutdown with alert if limit exceeded.
+- **Late binding**: Telegram adapter receives core reference via `setCore()` to resolve the circular dependency (core needs bot for tools, telegram needs core to trigger ticks).
+- **Snapshot-on-write**: Every mind file write copies the previous version to `mind/history/` before overwriting.
+
 ## Resolved Design Decisions
 
 - **Latency**: 1-3 second API round-trip is acceptable for v0

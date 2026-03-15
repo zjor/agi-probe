@@ -12,6 +12,7 @@ export interface Config {
   maxToolIterations: number;
   conversationHistoryLength: number;
   claudeModel: string;
+  tavilyApiKey: string;
 }
 
 function requireEnv(name: string): string {
@@ -47,6 +48,7 @@ export function loadConfig(): Config {
     maxToolIterations: parseInt(optionalEnv('MAX_TOOL_ITERATIONS', '10'), 10),
     conversationHistoryLength: parseInt(optionalEnv('CONVERSATION_HISTORY_LENGTH', '20'), 10),
     claudeModel: optionalEnv('CLAUDE_MODEL', 'claude-sonnet-4-20250514'),
+    tavilyApiKey: requireEnv('TAVILY_API_KEY'),
   };
 
   if (config.allowedTelegramUsers.length === 0) {

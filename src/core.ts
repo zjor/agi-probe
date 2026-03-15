@@ -94,7 +94,7 @@ export function createCognitiveCore(deps: {
         costLimitUsd: config.costLimitUsd,
       };
 
-      const { system, messages } = await assemblePrompt(stateManager, conversationManager, tickContext);
+      const { system, messages } = await assemblePrompt(stateManager, conversationManager, logger, tickContext);
 
       // Log raw request
       await logger.logRaw({
@@ -109,6 +109,7 @@ export function createCognitiveCore(deps: {
       let iteration = 0;
 
       const toolCtx: ToolContext = {
+        config,
         stateManager,
         logger,
         conversationManager,
@@ -174,7 +175,7 @@ export function createCognitiveCore(deps: {
         };
 
         for (const toolBlock of toolUseBlocks) {
-          console.log(`[core] Tick #${currentTickId} tool call: ${toolBlock.name}`);
+          console.log(`[core] Tick #${currentTickId} tool call: ${toolBlock.name}`, JSON.stringify(toolBlock.input));
           allToolCalls.push({ name: toolBlock.name, input: toolBlock.input });
 
           let result: string;
@@ -229,6 +230,12 @@ export function createCognitiveCore(deps: {
       });
     } finally {
       tickInProgress = false;
+    }
+
+    // If events accumulated while this tick was running, process them immediately
+    if (eventQueue.size() > 0) {
+      console.log(`[core] ${eventQueue.size()} events queued during tick, running follow-up tick`);
+      await runTick('queued_events');
     }
   }
 
