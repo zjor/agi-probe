@@ -13,6 +13,7 @@ export interface TickLogEntry {
   state_delta?: string;
   cost_usd: number;
   cumulative_cost_usd: number;
+  lane?: 'fast' | 'slow';
 }
 
 export interface RawLogEntry {
@@ -29,10 +30,18 @@ export interface ThoughtLogEntry {
   category: string;
 }
 
+export interface ImpressionLogEntry {
+  timestamp: string;
+  lane: 'fast';
+  channel: string;
+  summary: string;
+}
+
 export interface Logger {
   logTick(entry: TickLogEntry): Promise<void>;
   logRaw(entry: RawLogEntry): Promise<void>;
   logThought(entry: ThoughtLogEntry): Promise<void>;
+  logImpression(entry: ImpressionLogEntry): Promise<void>;
   getRecentThoughts(limit: number): Promise<ThoughtLogEntry[]>;
 }
 
@@ -61,6 +70,13 @@ export function createLogger(config: Config): Logger {
     async logThought(entry: ThoughtLogEntry): Promise<void> {
       await appendJsonl(`thinking-${todayDateString()}.jsonl`, {
         type: 'thought',
+        ...entry,
+      });
+    },
+
+    async logImpression(entry: ImpressionLogEntry): Promise<void> {
+      await appendJsonl(`thinking-${todayDateString()}.jsonl`, {
+        type: 'impression',
         ...entry,
       });
     },

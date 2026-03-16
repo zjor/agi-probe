@@ -2,55 +2,52 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Config } from './config.js';
 import type { StateManager } from './state.js';
 import type { Logger } from './logger.js';
-import type { EventQueue, AgentEvent } from './events.js';
+import type { EventQueue } from './events.js';
 import type { ConversationManager } from './conversations.js';
+import type { CostTracker } from './cost-tracker.js';
+import type { ImpressionQueue } from './impressions.js';
 import type { ToolContext } from './tools/index.js';
 import { toolDefinitions, executeTool } from './tools/index.js';
 import { assemblePrompt, type TickContext } from './prompt.js';
+import { callClaude } from './claude-client.js';
+import { computeCost } from './cost-tracker.js';
 import type { Bot } from 'grammy';
 
-// Claude pricing per million tokens (sonnet 4)
-const INPUT_COST_PER_M = 3.0;
-const OUTPUT_COST_PER_M = 15.0;
-
-function computeCost(inputTokens: number, outputTokens: number): number {
-  return (inputTokens / 1_000_000) * INPUT_COST_PER_M + (outputTokens / 1_000_000) * OUTPUT_COST_PER_M;
-}
-
-export interface CognitiveCore {
+export interface SlowLane {
   runTick(trigger: string): Promise<void>;
-  getCumulativeCost(): number;
-  getTickCount(): number;
   isRunning(): boolean;
+  getTickCount(): number;
 }
 
-export function createCognitiveCore(deps: {
+export function createSlowLane(deps: {
   config: Config;
   stateManager: StateManager;
   logger: Logger;
   eventQueue: EventQueue;
   conversationManager: ConversationManager;
+  costTracker: CostTracker;
+  impressionQueue: ImpressionQueue;
   bot: Bot;
-}): CognitiveCore {
-  const { config, stateManager, logger, eventQueue, conversationManager, bot } = deps;
+}): SlowLane {
+  const { config, stateManager, logger, eventQueue, conversationManager, costTracker, impressionQueue, bot } = deps;
   const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
   let tickInProgress = false;
   let tickCount = 0;
-  let cumulativeCostUsd = 0;
   let lastTickTime: number | null = null;
 
   async function runTick(trigger: string): Promise<void> {
     if (tickInProgress) {
-      console.log(`[core] Tick skipped (in progress). Trigger: ${trigger}, queued events: ${eventQueue.size()}`);
+      console.log(`[slow-lane] Tick skipped (in progress). Trigger: ${trigger}, queued events: ${eventQueue.size()}`);
       await logger.logTick({
         timestamp: new Date().toISOString(),
         tick_id: tickCount,
         trigger,
         events: [],
         cost_usd: 0,
-        cumulative_cost_usd: cumulativeCostUsd,
+        cumulative_cost_usd: costTracker.getCumulativeCost(),
         response_summary: 'tick_skipped',
+        lane: 'slow',
       });
       return;
     }
@@ -61,16 +58,15 @@ export function createCognitiveCore(deps: {
 
     try {
       // Cost gate check
-      if (cumulativeCostUsd >= config.costLimitUsd) {
-        console.error(`[core] Cost limit reached ($${cumulativeCostUsd.toFixed(4)} >= $${config.costLimitUsd}). Shutting down.`);
+      if (!costTracker.isWithinBudget()) {
+        console.error(`[slow-lane] Cost limit reached ($${costTracker.getCumulativeCost().toFixed(4)}). Shutting down.`);
         try {
-          // Try to alert via first known chat
           const channels = await conversationManager.listChannels();
           if (channels.length > 0) {
             const ch = channels[0];
             await bot.api.sendMessage(
               ch.chatId,
-              `⚠️ Cost limit reached ($${cumulativeCostUsd.toFixed(2)} / $${config.costLimitUsd}). Shutting down.`,
+              `⚠️ Cost limit reached ($${costTracker.getCumulativeCost().toFixed(2)} / $${config.costLimitUsd}). Shutting down.`,
             );
           }
         } catch { /* best effort */ }
@@ -80,17 +76,19 @@ export function createCognitiveCore(deps: {
       const timeSinceLastTick = lastTickTime ? Date.now() - lastTickTime : null;
       lastTickTime = Date.now();
 
-      // Drain events
+      // Drain events and impressions
       const events = eventQueue.drain();
+      const impressions = impressionQueue.drain();
 
       // Assemble prompt
       const tickContext: TickContext = {
         tickId: currentTickId,
         trigger,
         events,
+        impressions,
         timeSinceLastTickMs: timeSinceLastTick,
         tickCostUsd: 0,
-        cumulativeCostUsd,
+        cumulativeCostUsd: costTracker.getCumulativeCost(),
         costLimitUsd: config.costLimitUsd,
       };
 
@@ -101,7 +99,7 @@ export function createCognitiveCore(deps: {
         timestamp: new Date().toISOString(),
         tick_id: currentTickId,
         direction: 'request',
-        data: { system, messages },
+        data: { lane: 'slow', system, messages },
       });
 
       // Agentic loop
@@ -121,49 +119,47 @@ export function createCognitiveCore(deps: {
 
       while (iteration < config.maxToolIterations) {
         // Cost gate before each API call
-        if (cumulativeCostUsd + tickCost >= config.costLimitUsd) {
-          console.warn(`[core] Cost limit would be exceeded. Ending tick early.`);
+        if (!costTracker.isWithinBudget()) {
+          console.warn(`[slow-lane] Cost limit would be exceeded. Ending tick early.`);
           break;
         }
 
         iteration++;
 
-        const response = await client.messages.create({
+        const result = await callClaude({
+          client,
           model: config.claudeModel,
-          max_tokens: 4096,
           system,
-          tools: toolDefinitions,
           messages: currentMessages,
+          tools: toolDefinitions,
         });
 
         // Track cost
-        const callCost = computeCost(
-          response.usage.input_tokens,
-          response.usage.output_tokens,
-        );
-        tickCost += callCost;
+        const callCostUsd = computeCost(result.inputTokens, result.outputTokens);
+        tickCost += callCostUsd;
+        // Directly add to cost tracker (no reservation for slow lane — it's serialized by mutex)
+        costTracker.settleCost(0, result.inputTokens, result.outputTokens);
 
         // Log raw response
         await logger.logRaw({
           timestamp: new Date().toISOString(),
           tick_id: currentTickId,
           direction: 'response',
-          data: response,
+          data: { lane: 'slow', response: result.response },
         });
 
         // Check if there are tool uses
-        const toolUseBlocks = response.content.filter(
+        const toolUseBlocks = result.response.content.filter(
           (block): block is Anthropic.ContentBlock & { type: 'tool_use' } => block.type === 'tool_use',
         );
 
-        if (toolUseBlocks.length === 0 || response.stop_reason === 'end_turn') {
-          // Final response — extract text
-          const textBlocks = response.content.filter(
+        if (toolUseBlocks.length === 0 || result.response.stop_reason === 'end_turn') {
+          const textBlocks = result.response.content.filter(
             (block): block is Anthropic.TextBlock => block.type === 'text',
           );
           const responseText = textBlocks.map(b => b.text).join('\n');
           if (responseText) {
-            console.log(`[core] Tick #${currentTickId} final response: ${responseText.slice(0, 200)}`);
+            console.log(`[slow-lane] Tick #${currentTickId} final response: ${responseText.slice(0, 200)}`);
           }
           break;
         }
@@ -175,7 +171,7 @@ export function createCognitiveCore(deps: {
         };
 
         for (const toolBlock of toolUseBlocks) {
-          console.log(`[core] Tick #${currentTickId} tool call: ${toolBlock.name}`, JSON.stringify(toolBlock.input));
+          console.log(`[slow-lane] Tick #${currentTickId} tool call: ${toolBlock.name}`, JSON.stringify(toolBlock.input));
           allToolCalls.push({ name: toolBlock.name, input: toolBlock.input });
 
           let result: string;
@@ -183,7 +179,7 @@ export function createCognitiveCore(deps: {
             result = await executeTool(toolBlock.name, toolBlock.input as Record<string, unknown>, toolCtx);
           } catch (err: any) {
             result = `Error: ${err.message}`;
-            console.error(`[core] Tool error (${toolBlock.name}):`, err.message);
+            console.error(`[slow-lane] Tool error (${toolBlock.name}):`, err.message);
           }
 
           (toolResults.content as Anthropic.ToolResultBlockParam[]).push({
@@ -193,17 +189,13 @@ export function createCognitiveCore(deps: {
           });
         }
 
-        // Append assistant message and tool results
-        currentMessages.push({ role: 'assistant', content: response.content });
+        currentMessages.push({ role: 'assistant', content: result.response.content });
         currentMessages.push(toolResults);
       }
 
       if (iteration >= config.maxToolIterations) {
-        console.warn(`[core] Tick #${currentTickId}: forced stop after ${config.maxToolIterations} iterations`);
+        console.warn(`[slow-lane] Tick #${currentTickId}: forced stop after ${config.maxToolIterations} iterations`);
       }
-
-      // Update cumulative cost
-      cumulativeCostUsd += tickCost;
 
       // Log tick summary
       await logger.logTick({
@@ -213,36 +205,31 @@ export function createCognitiveCore(deps: {
         events,
         tool_calls: allToolCalls,
         cost_usd: tickCost,
-        cumulative_cost_usd: cumulativeCostUsd,
+        cumulative_cost_usd: costTracker.getCumulativeCost(),
+        lane: 'slow',
       });
 
-      console.log(`[core] Tick #${currentTickId} complete. Cost: $${tickCost.toFixed(4)}, Total: $${cumulativeCostUsd.toFixed(4)}`);
+      console.log(`[slow-lane] Tick #${currentTickId} complete. Cost: $${tickCost.toFixed(4)}, Total: $${costTracker.getCumulativeCost().toFixed(4)}`);
     } catch (err: any) {
-      console.error(`[core] Tick #${currentTickId} error:`, err.message);
+      console.error(`[slow-lane] Tick #${currentTickId} error:`, err.message);
       await logger.logTick({
         timestamp: new Date().toISOString(),
         tick_id: currentTickId,
         trigger,
         events: [],
         cost_usd: tickCost,
-        cumulative_cost_usd: cumulativeCostUsd,
+        cumulative_cost_usd: costTracker.getCumulativeCost(),
         response_summary: `error: ${err.message}`,
+        lane: 'slow',
       });
     } finally {
       tickInProgress = false;
-    }
-
-    // If events accumulated while this tick was running, process them immediately
-    if (eventQueue.size() > 0) {
-      console.log(`[core] ${eventQueue.size()} events queued during tick, running follow-up tick`);
-      await runTick('queued_events');
     }
   }
 
   return {
     runTick,
-    getCumulativeCost: () => cumulativeCostUsd,
-    getTickCount: () => tickCount,
     isRunning: () => tickInProgress,
+    getTickCount: () => tickCount,
   };
 }

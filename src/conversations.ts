@@ -29,6 +29,7 @@ function channelFilename(ch: ChannelId): string {
 
 export function createConversationManager(config: Config): ConversationManager {
   const dir = path.join(config.runtimeDir, 'conversations');
+  const locks = new Map<string, Promise<void>>();
 
   async function readFile(ch: ChannelId): Promise<ConversationFile> {
     const filepath = path.join(dir, channelFilename(ch));
@@ -54,12 +55,18 @@ export function createConversationManager(config: Config): ConversationManager {
     },
 
     async appendMessage(channel: ChannelId, msg: ConversationMessage, displayName?: string): Promise<void> {
-      const data = await readFile(channel);
-      data.messages.push(msg);
-      if (displayName) {
-        data.displayName = displayName;
-      }
-      await writeFile(channel, data);
+      const key = channelKey(channel);
+      const prev = locks.get(key) ?? Promise.resolve();
+      const next = prev.then(async () => {
+        const data = await readFile(channel);
+        data.messages.push(msg);
+        if (displayName) {
+          data.displayName = displayName;
+        }
+        await writeFile(channel, data);
+      });
+      locks.set(key, next.catch(() => {})); // swallow to avoid poisoning the chain
+      return next;
     },
 
     async listChannels(): Promise<ChannelId[]> {

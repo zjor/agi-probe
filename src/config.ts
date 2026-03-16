@@ -43,7 +43,7 @@ export function loadConfig(): Config {
       .map(s => s.trim())
       .filter(Boolean),
     runtimeDir: resolveDir(optionalEnv('RUNTIME_DIR', '~/.agi-probe/runtime')),
-    heartbeatIntervalMs: parseInt(optionalEnv('HEARTBEAT_INTERVAL_MS', '60000'), 10),
+    heartbeatIntervalMs: parseInt(optionalEnv('HEARTBEAT_INTERVAL_MS', '120000'), 10),
     costLimitUsd: parseFloat(optionalEnv('COST_LIMIT_USD', '5.0')),
     maxToolIterations: parseInt(optionalEnv('MAX_TOOL_ITERATIONS', '10'), 10),
     conversationHistoryLength: parseInt(optionalEnv('CONVERSATION_HISTORY_LENGTH', '20'), 10),

@@ -3,12 +3,14 @@ import type { StateManager } from './state.js';
 import type { Logger, ThoughtLogEntry } from './logger.js';
 import type { AgentEvent, ChannelId } from './events.js';
 import type { ConversationManager, ConversationMessage } from './conversations.js';
+import type { Impression } from './impressions.js';
 import { channelKey } from './events.js';
 
 export interface TickContext {
   tickId: number;
   trigger: string;
   events: AgentEvent[];
+  impressions: Impression[];
   timeSinceLastTickMs: number | null;
   tickCostUsd: number;
   cumulativeCostUsd: number;
@@ -91,6 +93,17 @@ export async function assemblePrompt(
     parts.push('## Recent Thoughts (your inner monologue from previous ticks)');
     for (const t of recentThoughts) {
       parts.push(`- [${t.timestamp}] (${t.category}) ${t.thought}`);
+    }
+    parts.push('');
+  }
+
+  // Impressions from recent fast lane conversations
+  if (context.impressions.length > 0) {
+    parts.push('## Impressions from Recent Conversations');
+    parts.push('Review the impressions below. Decide whether any conversations should influence your state, worldview, or strategy.');
+    for (const imp of context.impressions) {
+      const chKey = channelKey(imp.channel);
+      parts.push(`- [${imp.timestamp}] ${chKey} — User: "${imp.userSaid}" → Agent: "${imp.agentReplied}"`);
     }
     parts.push('');
   }

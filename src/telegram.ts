@@ -1,26 +1,24 @@
 import { Bot } from 'grammy';
 import type { Config } from './config.js';
-import type { EventQueue } from './events.js';
 import type { ConversationManager } from './conversations.js';
-import type { CognitiveCore } from './core.js';
+import type { FastLane } from './fast-lane.js';
 
 export interface TelegramAdapter {
   bot: Bot;
-  setCore(core: CognitiveCore): void;
+  setFastLane(lane: FastLane): void;
   start(): void;
   stop(): void;
 }
 
 export function createTelegramAdapter(deps: {
   config: Config;
-  eventQueue: EventQueue;
   conversationManager: ConversationManager;
 }): TelegramAdapter {
-  const { config, eventQueue, conversationManager } = deps;
+  const { config, conversationManager } = deps;
   const bot = new Bot(config.telegramBotToken);
   const allowedUsers = new Set(config.allowedTelegramUsers);
 
-  let core: CognitiveCore | null = null;
+  let fastLane: FastLane | null = null;
 
   bot.on('message:text', async (ctx) => {
     const userId = String(ctx.from.id);
@@ -52,31 +50,18 @@ export function createTelegramAdapter(deps: {
       displayName,
     );
 
-    // Push event
-    eventQueue.push({
-      type: 'chat_message',
-      timestamp: new Date().toISOString(),
-      payload: {
-        text,
-        userId,
-        displayName,
-        messageId,
-      },
-      channel,
-    });
-
-    // Trigger a tick
-    if (core) {
-      core.runTick('chat_message').catch(err => {
-        console.error('[telegram] Tick error:', err.message);
+    // Route to fast lane
+    if (fastLane) {
+      fastLane.handleMessage(channel, text, displayName, messageId).catch(err => {
+        console.error('[telegram] Fast lane error:', err.message);
       });
     }
   });
 
   return {
     bot,
-    setCore(c: CognitiveCore): void {
-      core = c;
+    setFastLane(lane: FastLane): void {
+      fastLane = lane;
     },
     start(): void {
       console.log('[telegram] Starting bot...');

@@ -4,13 +4,16 @@ import { loadConfig } from './config.js';
 import { createStateManager } from './state.js';
 import { createLogger } from './logger.js';
 import { createEventQueue } from './events.js';
+import { createImpressionQueue } from './impressions.js';
+import { createCostTracker } from './cost-tracker.js';
 import { createConversationManager } from './conversations.js';
-import { createCognitiveCore } from './core.js';
+import { createFastLane } from './fast-lane.js';
+import { createSlowLane } from './slow-lane.js';
 import { createHeartbeat } from './heartbeat.js';
 import { createTelegramAdapter } from './telegram.js';
 
 async function main(): Promise<void> {
-  console.log('[main] AGI Probe v0 starting...');
+  console.log('[main] AGI Probe v0 starting (dual-lane architecture)...');
 
   // Load config
   const config = loadConfig();
@@ -19,10 +22,12 @@ async function main(): Promise<void> {
   console.log(`[main] Cost limit: $${config.costLimitUsd}`);
   console.log(`[main] Model: ${config.claudeModel}`);
 
-  // Initialize modules
+  // Initialize shared infrastructure
   const stateManager = createStateManager(config);
   const logger = createLogger(config);
   const eventQueue = createEventQueue();
+  const impressionQueue = createImpressionQueue();
+  const costTracker = createCostTracker(config.costLimitUsd);
   const conversationManager = createConversationManager(config);
 
   // Bootstrap runtime directory
@@ -41,28 +46,40 @@ async function main(): Promise<void> {
     console.log('[main] Runtime directory already exists, using existing state');
   }
 
-  // Create Telegram adapter (creates the bot instance)
+  // Create Telegram adapter
   const telegram = createTelegramAdapter({
     config,
-    eventQueue,
     conversationManager,
   });
 
-  // Create cognitive core with bot reference
-  const core = createCognitiveCore({
+  // Create Fast Lane
+  const fastLane = createFastLane({
+    config,
+    stateManager,
+    conversationManager,
+    logger,
+    costTracker,
+    impressionQueue,
+    bot: telegram.bot,
+  });
+
+  // Create Slow Lane
+  const slowLane = createSlowLane({
     config,
     stateManager,
     logger,
     eventQueue,
     conversationManager,
+    costTracker,
+    impressionQueue,
     bot: telegram.bot,
   });
 
-  // Wire core into telegram adapter (resolves circular dep)
-  telegram.setCore(core);
+  // Wire: telegram → fast lane
+  telegram.setFastLane(fastLane);
 
-  // Create heartbeat
-  const heartbeat = createHeartbeat(config, eventQueue, core);
+  // Create heartbeat → slow lane
+  const heartbeat = createHeartbeat(config, eventQueue, slowLane);
 
   // Graceful shutdown
   let shuttingDown = false;
@@ -72,7 +89,7 @@ async function main(): Promise<void> {
     console.log(`\n[main] Received ${signal}, shutting down...`);
     heartbeat.stop();
     telegram.stop();
-    console.log(`[main] Final cost: $${core.getCumulativeCost().toFixed(4)} over ${core.getTickCount()} ticks`);
+    console.log(`[main] Final cost: $${costTracker.getCumulativeCost().toFixed(4)} over ${slowLane.getTickCount()} slow ticks`);
     process.exit(0);
   }
 
@@ -83,7 +100,7 @@ async function main(): Promise<void> {
   telegram.start();
   heartbeat.start();
 
-  console.log('[main] AGI Probe v0 is alive.');
+  console.log('[main] AGI Probe v0 is alive. Fast lane: chat → immediate. Slow lane: heartbeat → background thinking.');
 }
 
 main().catch((err) => {

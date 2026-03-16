@@ -1,13 +1,13 @@
 import type { Config } from './config.js';
 import type { EventQueue } from './events.js';
-import type { CognitiveCore } from './core.js';
+import type { SlowLane } from './slow-lane.js';
 
 export interface Heartbeat {
   start(): void;
   stop(): void;
 }
 
-export function createHeartbeat(config: Config, eventQueue: EventQueue, core: CognitiveCore): Heartbeat {
+export function createHeartbeat(config: Config, eventQueue: EventQueue, slowLane: SlowLane): Heartbeat {
   let timer: ReturnType<typeof setInterval> | null = null;
 
   return {
@@ -21,7 +21,7 @@ export function createHeartbeat(config: Config, eventQueue: EventQueue, core: Co
           timestamp: new Date().toISOString(),
           payload: {},
         });
-        core.runTick('heartbeat').catch(err => {
+        slowLane.runTick('heartbeat').catch(err => {
           console.error('[heartbeat] Tick error:', err.message);
         });
       }, config.heartbeatIntervalMs);

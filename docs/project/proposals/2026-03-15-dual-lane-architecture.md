@@ -155,9 +155,12 @@ If heartbeat interval is long and many conversations happen, impressions pile up
 
 Two parallel execution paths are harder to trace. Mitigation: tag all log entries with `lane: 'fast' | 'slow'` so JSONL logs can be filtered.
 
+## Decisions
+
+- **No forced slow-lane ticks.** The fast lane never triggers an immediate slow-lane cycle. The slow lane runs strictly on its heartbeat rhythm.
+- **Impressions = summaries.** Each impression captures a summary of what happened, key points from the user, and what the agent said back — not verbatim messages.
+- **Heartbeat interval = 2 minutes.** Long enough to batch impressions, short enough to keep the agent's inner state reasonably current.
+
 ## Open Questions
 
 - Should the fast lane have its own `log_thought` entries that are tagged differently?
-- Should impressions include the full conversation turn or just a summary?
-- Should the fast lane be able to trigger an immediate slow lane tick (e.g., "this conversation changed my worldview — process now")?
-- What's the right heartbeat interval once the fast lane handles responsiveness? Could be longer (e.g., 5 minutes) since chat doesn't depend on it anymore.
